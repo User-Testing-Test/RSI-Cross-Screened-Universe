@@ -310,6 +310,8 @@ def job_warm_rsi():
         return
     warmed = 0
     for s in universe:
+        if s not in track:          # session start has not run yet
+            continue
         cl = [float(b.close) for b in bars.data.get(s, [])]
         if len(cl) >= RSI_PERIOD + 1:
             ag, al, rsi = wilder_seed(cl, RSI_PERIOD)
@@ -686,6 +688,55 @@ def job_daily_summary():
     log.info("\n" + text)
     send_email(f"RSICross — {datetime.now(ET).strftime('%Y-%m-%d')}", text, html)
 
+def catch_up_on_startup():
+    """Bring the bot to the correct state for the CURRENT time.
+
+    The scheduler fires jobs on an exact minute match, so a process that starts
+    at 09:32 — or is redeployed at 13:00 — would otherwise miss session start
+    and sit dead until the next morning. Redeploys happen often, so this matters
+    more than the once-a-day case.
+    """
+    now = datetime.now(ET)
+    try:
+        if not trading.get_clock().is_open:
+            log.info("Startup: market closed — waiting for the next session.")
+            return
+    except Exception as e:
+        log.warning(f"Startup clock check failed: {e}")
+        return
+
+    session_start = now.replace(hour=STREAM_START_HOUR, minute=STREAM_START_MIN,
+                                second=0, microsecond=0)
+    hard_close = now.replace(hour=EXIT_HOUR, minute=EXIT_MINUTE,
+                             second=0, microsecond=0)
+    if now < session_start or now >= hard_close:
+        log.info("Startup: outside the trading window — waiting for the schedule.")
+        return
+
+    log.info("=" * 62)
+    log.info(f"STARTUP CATCH-UP — mid-session start at {now.strftime('%H:%M')} ET")
+    log.info("=" * 62)
+    job_session_start()
+    if not universe:
+        return
+
+    # Warm RSI from the session's bars so far, rather than waiting ~14 minutes
+    # for the live stream to fill the window.
+    job_warm_rsi()
+
+    monitor_open = now.replace(hour=MONITOR_START_HOUR, minute=MONITOR_START_MIN,
+                               second=0, microsecond=0)
+    last_entry = now.replace(hour=LAST_ENTRY_HOUR, minute=LAST_ENTRY_MIN,
+                             second=0, microsecond=0)
+    if monitor_open <= now < last_entry:
+        job_open_monitor()
+    elif now >= last_entry:
+        log.info("Past the last-entry time — monitoring stays closed today.")
+    else:
+        log.info(f"Entries open at {MONITOR_START_HOUR:02d}:"
+                 f"{MONITOR_START_MIN:02d} as scheduled.")
+
+
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 
 def run_scheduler():
@@ -744,4 +795,5 @@ if __name__ == "__main__":
         raise RuntimeError(f"Could not connect to Alpaca: {e}")
     universe = load_universe()
     threading.Thread(target=run_flask, daemon=True).start()
+    catch_up_on_startup()
     run_scheduler()
