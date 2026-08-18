@@ -23,16 +23,16 @@ extra metric columns are ignored.
 
 | | |
 |---|---|
-| Entry | RSI(14) 1-min cross up through **15** |
-| Exit | RSI cross up through **50** |
-| Exit backstop | **60 min** max hold |
+| Entry | RSI(14) 1-min cross up through **20** |
+| Exit | RSI cross up through **60** |
+| Exit backstop | **120 min** max hold |
 | Hard close | 15:30 ET |
 | Position size | **$1,500** |
 | Max concurrent | **3** |
 | Max entries/day | **10** |
-| Disaster stop | **3%** |
+| Disaster stop | **2%** |
 | Entry window | 10:00 – 15:25 ET |
-| Re-entry | allowed once RSI recovers above **50** |
+| Re-entry | allowed once RSI recovers above **60** |
 
 ## Schedule (ET)
 
@@ -47,7 +47,7 @@ extra metric columns are ignored.
 ## Re-entry
 
 A symbol is disarmed after it fires, and re-armed only when RSI climbs back
-above 50. That completes the oversold → recovered cycle, so a later dip is a
+above 60 (`RE_ARM_LEVEL` is tied to `EXIT_CROSS_LEVEL`, so they move together). That completes the oversold → recovered cycle, so a later dip is a
 genuinely new signal rather than the same depressed stock re-triggering.
 
 Because the re-arm level matches the exit level, a normal RSI-50 exit re-arms the
@@ -71,9 +71,13 @@ while ITUB filled at 0.24% slippage and ELAN at 0.07%).
 
 ## What to expect
 
-**RSI 15 is a deep threshold and fires rarely.** Few trades is the intended
-trade-off — stronger signal, smaller sample. Weeks with almost nothing are
-information about the level, not a malfunction.
+**Settings history.** Entry started at 15 — only ~2 trades/day live, too slow to
+accumulate evidence — so it was raised to 20. The exit was then raised 50 → 60
+and the max hold 60 → 120 minutes, since a higher exit target takes longer to
+reach and a 60-minute cap would have cut trades short.
+
+Trades before and after the change are **not one dataset**. The trade log records
+RSI at entry, so they can be separated when you analyse.
 
 **The backtested edge was not statistically significant.** Every confidence
 interval spanned zero. This runs to gather forward, out-of-sample evidence.
@@ -81,11 +85,13 @@ Judge it over months.
 
 ## Watch in the logs
 
-- Share of exits tagged `DISASTER STOP` — if more than a few percent, the 3%
-  stop is shaping results rather than insuring against disaster.
+- Share of exits tagged `DISASTER STOP` — at 2% this sits close to normal
+  intraday noise, so if it is more than a few percent the stop is shaping
+  results rather than insuring against disaster. Mean-reversion entries often
+  dip again before working.
 - Share tagged `MAX HOLD` — if most exits hit the 120-minute backstop rather
-  than RSI 50, the exit rule is barely firing and you are effectively running a
-  timed exit.
+  than RSI 60, the exit rule is barely firing and you are effectively running a
+  timed exit under another name.
 - `slippage` in the trade log — the ground truth on trading costs, and the
   check on whether the offline spread screen picked the right names.
 
