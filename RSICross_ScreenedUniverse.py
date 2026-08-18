@@ -9,11 +9,11 @@ Strategy
 --------
   09:30 ET  stream starts; intraday RSI warms up from the opening bars
   10:00 ET  entries open
-  intraday  ENTER when RSI(14) on 1-minute bars crosses UP through 15
-  intraday  EXIT  when RSI crosses UP through 50
+  intraday  ENTER when RSI(14) on 1-minute bars crosses UP through 20
+  intraday  EXIT  when RSI crosses UP through 60
             ...or MAX_HOLD_MINUTES elapses
             ...or the disaster stop trips
-  re-entry  a symbol can fire again once RSI has climbed back above 50 since
+  re-entry  a symbol can fire again once RSI has climbed back above 60 since
             its last entry, i.e. the oversold -> recovered cycle completed
   15:25 ET  last entry
   15:30 ET  hard close anything still open
@@ -43,9 +43,13 @@ The effect was NOT statistically significant — every confidence interval spann
 zero. This bot exists to gather forward, out-of-sample evidence. Judge it over
 months, not days.
 
-Note RSI 15 is a DEEP oversold threshold and fires rarely. Expect few trades;
-that is the intended trade-off (stronger signal, smaller sample). If weeks pass
-with almost nothing, that is information about the level, not a malfunction.
+The entry level started at 15, which produced only ~2 trades/day live — too few
+to learn anything at a useful rate. It is now 20. A shallower threshold means
+more signals, each individually less extreme; whether that trades away real edge
+for sample size is exactly what the forward record will show.
+
+Because the level changed mid-run, trades before and after are NOT one dataset.
+The trade log records RSI at entry, so they can be separated later.
 
 Setup
   pip install alpaca-py python-dotenv schedule flask websockets
@@ -109,8 +113,13 @@ MARKET_CLOSE_HOUR, MARKET_CLOSE_MIN   = 16, 5   # stop stream
 
 # --- Signal ---
 RSI_PERIOD        = 14      # bars (1-minute), matches the study
-ENTRY_CROSS_LEVEL = 15.0    # ENTER on an upward cross through this
-EXIT_CROSS_LEVEL  = 50.0    # EXIT on an upward cross through this
+# Raised 15 -> 20 on 2026-08-xx: RSI 15 produced only ~2 trades/day live, too
+# few to accumulate evidence at any useful rate. 20 is a shallower (less
+# selective) oversold reading, so expect more signals of individually weaker
+# quality — the point is sample size, not a claim that 20 is better.
+# Treat pre-change and post-change trades as SEPARATE datasets when analysing.
+ENTRY_CROSS_LEVEL = 20.0    # ENTER on an upward cross through this
+EXIT_CROSS_LEVEL  = 60.0    # EXIT on an upward cross through this
 
 # --- Risk / sizing ---
 POSITION_SIZE_USD   = 1500
@@ -119,25 +128,34 @@ MAX_ENTRIES_PER_DAY = 10
 # A symbol may fire again once RSI has risen back above RE_ARM_LEVEL since its
 # last entry. That completes the oversold -> recovered cycle, so a later dip is a
 # genuinely NEW signal rather than the same one re-triggering while the stock is
-# still depressed. Because RE_ARM_LEVEL matches EXIT_CROSS_LEVEL, a normal
-# RSI-50 exit re-arms the symbol in the same bar; a position closed by the
-# MAX HOLD or DISASTER STOP path stays disarmed until RSI genuinely recovers.
-RE_ARM_LEVEL = 50.0
+# still depressed. Kept equal to EXIT_CROSS_LEVEL so a normal exit re-arms the
+# symbol in the same bar; a position closed by MAX HOLD or DISASTER STOP stays
+# disarmed until RSI genuinely recovers.
+RE_ARM_LEVEL = EXIT_CROSS_LEVEL
 
 # NB the backtest counted only the FIRST signal per symbol-day, so allowing
 # re-entry is a deliberate divergence from what was tested. MAX_ENTRIES_PER_DAY
 # is now the real brake on over-trading.
 
-# Backstop: RSI may never reach the exit level. RSI-50 crosses averaged ~19
-# minutes in testing, so 60 rarely pre-empts the primary exit while capping
-# exposure. Watch the share of exits tagged MAX HOLD: if most trades hit this
-# rather than RSI>50, you are really running a timed exit.
-MAX_HOLD_MINUTES = 60
+# Backstop: RSI may never reach the exit level. Raised 60 -> 120 alongside the
+# exit level going 50 -> 60: a higher target takes longer to reach, so a 60m cap
+# would have cut many trades short and turned this into a timed exit by stealth.
+# Watch the share of exits tagged MAX HOLD — if most trades hit this rather than
+# RSI>60, the cap is doing the work, not the signal.
+MAX_HOLD_MINUTES = 120
 
-# Catastrophic-loss insurance only. NOT data-derived: the study measured mean
-# forward returns and never the distribution of individual trade paths, so
-# nothing in it says where a stop belongs. 0 disables.
-DISASTER_STOP_PCT = 3.0
+# NOT data-derived: the study measured mean forward returns and never the
+# distribution of individual trade paths, so nothing in it says where a stop
+# belongs. 0 disables.
+#
+# Tightened 3% -> 2%, which caps a trade at about -$30 on a $1500 position.
+# At this level it is no longer purely catastrophic-loss insurance: 2% is close
+# enough to normal intraday noise that it will sometimes cut trades that would
+# have recovered — and this entry is a mean-reversion signal, where a second dip
+# before the bounce is common. Watch the DISASTER STOP share of exits; if it is
+# more than a few percent, the stop is shaping results rather than insuring
+# against disaster.
+DISASTER_STOP_PCT = 2.0
 
 DATA_FEED = DataFeed.IEX
 
